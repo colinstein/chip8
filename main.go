@@ -3,11 +3,14 @@ package main
 import (
 	"github.com/go-gl/gl/v4.1-core/gl"
 	"github.com/go-gl/glfw/v3.2/glfw"
+	"log"
 	"runtime"
 )
 
 const (
-	vertexProgramramSource = `
+	// These should come into distinct files, and then use a loader to pull
+	// them in to be used
+	vertexProgramSource = `
 		#version 410
 		in vec3 vp;
 		void main() {
@@ -19,7 +22,7 @@ const (
 		#version 410
 		out vec4 frag_colour;
 		void main() {
-		  frag_colour = vec4(1, 1, 1, 1.0);
+		  frag_colour = vec4(1.0, 0.0, 0.0, 1.0);
 		}
 	` + "\x00"
 )
@@ -54,7 +57,7 @@ func compileGLProgram() uint32 {
 		panic(err)
 	}
 
-	vertexProgram := compileShaderProgram(vertexProgramramSource, gl.VERTEX_SHADER)
+	vertexProgram := compileShaderProgram(vertexProgramSource, gl.VERTEX_SHADER)
 	fragmentProgram := compileShaderProgram(fragmentProgramSource, gl.FRAGMENT_SHADER)
 
 	program := gl.CreateProgram()
@@ -82,25 +85,55 @@ func compileShaderProgram(source string, shaderType uint32) uint32 {
 	return shader
 }
 
+func makeVao(points []float32) uint32 {
+	var vbo uint32
+	gl.GenBuffers(1, &vbo)
+	gl.BindBuffer(gl.ARRAY_BUFFER, vbo)
+	gl.BufferData(gl.ARRAY_BUFFER, 4*len(points), gl.Ptr(points), gl.STATIC_DRAW)
+
+	var vao uint32
+	gl.GenVertexArrays(1, &vao)
+	gl.BindVertexArray(vao)
+	gl.EnableVertexAttribArray(0)
+	gl.BindBuffer(gl.ARRAY_BUFFER, vbo)
+	gl.VertexAttribPointer(0, 3, gl.FLOAT, false, 0, nil)
+
+	return vao
+}
+
+var (
+	// pulling this out into a file might be worth while too
+	quad = []float32{
+		-1.0, 1.0, 0.0,
+		-1.0, -1.0, 0.0,
+		1.0, -1.0, 0.0,
+		-1.0, 1.0, 0.0,
+		1.0, -1.0, 0.0,
+		1.0, 1.0, 0.0,
+	}
+)
+
 func main() {
+	log.Println("Starting up…")
+
 	runtime.LockOSThread()
 
 	window := initWindow()
 	defer glfw.Terminate()
 
 	program := compileGLProgram()
+	vao := makeVao(quad)
 
 	for !window.ShouldClose() {
 		glfw.PollEvents()
 		gl.Clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT)
 		gl.UseProgram(program)
-		// Thought: what if we had one big 'quad' that covers the screen and set it
-		// draw from a texture that we update based on an internal representation
-		// that we maintain as a plain old array. Sort of recreating the mem-mapped
-		// IO that we used back in the bad old days?
-		// it'd be nice to avoid making a couple of vertex lists for coords and
-		// colours if we it's possible. I feel like "map this memory to a picture is
-		// probably easier to understand
+		gl.BindVertexArray(vao)
+		gl.DrawArrays(gl.TRIANGLES, 0, int32(len(quad)/3))
+		// render 'video memory' to a PBO, and use that to texture the quad
+		// https://kylewbanks.com/blog/tutorial-opengl-with-golang-part-1-hello-opengl
 		window.SwapBuffers()
 	}
+
+	log.Println("Shutting down…")
 }
